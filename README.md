@@ -254,6 +254,12 @@ alias say='~/path/to/osay'
 - Ensure `afplay` is available (should be on all macOS)
 - For non-standard formats, `ffplay` from FFmpeg may be needed
 
+## API Documentation
+
+For detailed information about OpenAI's Text-to-Speech capabilities, including voice options, audio formats, and API parameters, see the official documentation:
+
+- [OpenAI Text-to-Speech Guide](https://platform.openai.com/docs/guides/text-to-speech)
+
 ## License
 
 MIT - feel free to use and modify!

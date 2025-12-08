@@ -242,8 +242,7 @@ class AudioCache:
         cached_items = []
         metadata_files = sorted(
             self.CACHE_DIR.glob("*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
+            key=lambda f: f.stat().st_mtime
         )
 
         for metadata_file in metadata_files:
@@ -356,65 +355,87 @@ class TTSService:
 
     def play_cached(self, cache_id: str = None):
         """Play cached audio. If no ID, use fzf to select."""
-        if not cache_id:
-            # Use fzf to select from cached items
-            if not command_exists('fzf'):
-                print("Error: fzf is not installed. Install it or provide a cache ID.", file=sys.stderr)
-                print("Install: brew install fzf", file=sys.stderr)
+        play_cached_audio(self.cache, cache_id)
+
+
+def play_cached_audio(cache: 'AudioCache', cache_id: str = None) -> None:
+    """Play cached audio. If no ID, select interactively with fzf."""
+    if not cache_id:
+        # Use fzf to select from cached items
+        if not command_exists('fzf'):
+            print("Error: fzf is not installed. Install it or provide a cache ID.", file=sys.stderr)
+            print("Install: brew install fzf", file=sys.stderr)
+            return
+
+        cached_items = cache.list_cached()
+        if not cached_items:
+            print("No cached audio files found.", file=sys.stderr)
+            return
+
+        # Prepare fzf input: ID<tab>timestamp - voice - text
+        # Tab delimiter hides ID from display with --with-nth=2
+        fzf_input = []
+        for item in cached_items:
+            time_str = datetime.fromisoformat(item['timestamp']).strftime('%Y-%m-%d %H:%M')
+            voice = item['voice'] or 'default'
+            text = item['text'].replace('\n', ' ')
+            if len(text) > 128:
+                text = text[:125] + '...'
+            fzf_input.append(f"{item['id']}\t{time_str} - {voice} - {text}")
+
+        # Run fzf with tab delimiter, show only field 2 (hides ID)
+        preview_cmd = 'jq -r ".text" ~/.osay/audios/"$(echo {} | cut -f1)".json 2>/dev/null'
+        fzf_cmd = ['fzf', '-d', '\t', '--with-nth=2',
+                  '--preview', preview_cmd,
+                  '--preview-window', 'up:3:wrap']
+
+        try:
+            process = subprocess.Popen(
+                fzf_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True
+            )
+            stdout, _ = process.communicate('\n'.join(fzf_input))
+
+            if process.returncode != 0:
                 return
 
-            cached_items = self.cache.list_cached()
-            if not cached_items:
-                print("No cached audio files found.", file=sys.stderr)
+            selected = stdout.strip()
+            if selected:
+                cache_id = selected.split('\t')[0]
+            else:
                 return
+        except (subprocess.SubprocessError, OSError):
+            return
 
-            # Prepare fzf input: ID<tab>timestamp - voice - text
-            # Tab delimiter hides ID from display with --with-nth=2
-            fzf_input = []
-            for item in cached_items:
-                time_str = datetime.fromisoformat(item['timestamp']).strftime('%Y-%m-%d %H:%M')
-                voice = item['voice'] or 'default'
-                text = item['text'].replace('\n', ' ')
-                if len(text) > 128:
-                    text = text[:125] + '...'
-                fzf_input.append(f"{item['id']}\t{time_str} - {voice} - {text}")
-
-            # Run fzf with tab delimiter, show only field 2 (hides ID)
-            preview_cmd = 'jq -r ".text" ~/.osay/audios/"$(echo {} | cut -f1)".json 2>/dev/null'
-            fzf_cmd = ['fzf', '-d', '\t', '--with-nth=2',
-                      '--preview', preview_cmd,
-                      '--preview-window', 'up:3:wrap']
-
-            try:
-                process = subprocess.Popen(
-                    fzf_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    text=True
-                )
-                stdout, _ = process.communicate('\n'.join(fzf_input))
-
-                if process.returncode != 0:
-                    return
-
-                selected = stdout.strip()
-                if selected:
-                    cache_id = selected.split('\t')[0]
-                else:
-                    return
-            except (subprocess.SubprocessError, OSError):
-                return
-
-        # Play the selected audio
-        if self.cache.play(cache_id):
-            print(f"Playing cached audio: {cache_id}", file=sys.stderr)
-        else:
-            print(f"Error: Could not play cached audio: {cache_id}", file=sys.stderr)
+    # Play the selected audio
+    if cache.play(cache_id):
+        print(f"Playing cached audio: {cache_id}", file=sys.stderr)
+    else:
+        print(f"Error: Could not play cached audio: {cache_id}", file=sys.stderr)
 
 
 def command_exists(cmd):
     """Check if command exists."""
     return subprocess.run(['which', cmd], capture_output=True).returncode == 0
+
+
+def display_cached_items(items):
+    """Display cached audio items in a formatted list."""
+    if not items:
+        print("No cached audio files found.", file=sys.stderr)
+        return False
+
+    for i, item in enumerate(items, 1):
+        print(f"\n{i}. ID: {item['id']}", file=sys.stderr)
+        print(f"   Time: {item['timestamp']}", file=sys.stderr)
+        print(f"   Voice: {item['voice']}", file=sys.stderr)
+        text_preview = item['text'][:80] + '...' if len(item['text']) > 80 else item['text']
+        print(f"   Text: {text_preview}", file=sys.stderr)
+        if item.get('instructions'):
+            print(f"   Instructions: {item['instructions']}", file=sys.stderr)
+    return True
 
 
 def main():
@@ -504,6 +525,7 @@ def main():
         if not cached_items:
             print("No cached audio files found.", file=sys.stderr)
             return
+        # List in chronological order, latest at the end
         for i, item in enumerate(cached_items, 1):
             print(f"\n{i}. ID: {item['id']}", file=sys.stderr)
             print(f"   Time: {item['timestamp']}", file=sys.stderr)
@@ -520,20 +542,15 @@ def main():
         if not cached_items:
             print("No cached audio files found. Generate some audio first!", file=sys.stderr)
             return
-        latest = cached_items[0]
+        # Last item is the most recent (chronological order)
+        latest = cached_items[-1]
         print(f"Playing: {latest['text'][:60]}{'...' if len(latest['text']) > 60 else ''}", file=sys.stderr)
         cache.play(latest['id'])
         return
 
     if args.play_cached is not None:
         cache = AudioCache()
-        cached_items = cache.list_cached()
-        if not cached_items:
-            print("No cached audio files found. Generate some audio first!", file=sys.stderr)
-            return
-        tts = TTSService.__new__(TTSService)
-        tts.cache = cache
-        tts.play_cached(args.play_cached if args.play_cached else None)
+        play_cached_audio(cache, args.play_cached if args.play_cached else None)
         return
 
     # Initialize TTS service (loads API key)
