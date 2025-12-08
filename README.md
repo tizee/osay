@@ -14,6 +14,31 @@ A powerful command-line text-to-speech tool that combines OpenAI's advanced TTS 
 
 ## Installation
 
+### Option 1: Using Make (Recommended)
+
+The easiest way to install `osay` is using the included Makefile:
+
+```bash
+# Install to ~/.local/bin (default)
+make install
+
+# Install to /usr/local/bin (requires admin rights)
+sudo make install PREFIX=/usr/local
+
+# Verify installation
+make check
+```
+
+**Note**: Make sure your installation directory (e.g., `~/.local/bin` or `/usr/local/bin`) is in your `PATH`. If not, add it to your shell config:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+### Option 2: Manual Installation
+
+If you prefer not to use `make`:
+
 1. **Install uv** (if not already installed):
    ```bash
    brew install uv
@@ -24,11 +49,22 @@ A powerful command-line text-to-speech tool that combines OpenAI's advanced TTS 
    chmod +x osay say.py
    ```
 
-3. **Add to PATH** (optional):
+3. **Copy to PATH** (optional):
    ```bash
    sudo cp osay /usr/local/bin/
    sudo cp say.py /usr/local/bin/
    ```
+
+### Uninstallation
+
+```bash
+# If installed with make
+make uninstall
+
+# If installed manually
+sudo rm -f /usr/local/bin/osay /usr/local/bin/say.py
+rm -rf ~/.config/osay  # Remove config directory
+```
 
 ## Quick Start
 
