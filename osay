@@ -1,0 +1,252 @@
+#!/bin/bash
+
+# osay - OpenAI TTS wrapper script
+# Sets up OpenAI API key and passes arguments to say.py
+
+set -e
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Script directory (resolve symlinks to find say.py)
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$SCRIPT_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+SAY_SCRIPT="${SCRIPT_DIR}/say.py"
+
+# Config file for storing API key
+CONFIG_DIR="${HOME}/.config/osay"
+CONFIG_FILE="${CONFIG_DIR}/config"
+
+# Function to print colored output
+print_error() {
+    echo -e "${RED}Error:${NC} $1" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+print_info() {
+    echo -e "${YELLOW}$1${NC}"
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to setup OpenAI API key
+setup_api_key() {
+    print_info "OpenAI API key not found."
+    echo
+    echo "To use OpenAI's text-to-speech, you need an API key."
+    echo "You can get one from: https://platform.openai.com/api-keys"
+    echo
+
+    read -p "Enter your OpenAI API key: " -s api_key
+    echo
+
+    if [[ -z "$api_key" ]]; then
+        print_error "API key cannot be empty."
+        return 1
+    fi
+
+    # Create config directory if it doesn't exist
+    mkdir -p "${CONFIG_DIR}"
+
+    # Save API key to config file with restricted permissions
+    echo "OPENAI_API_KEY=${api_key}" > "${CONFIG_FILE}"
+    chmod 600 "${CONFIG_FILE}"
+
+    print_success "API key saved to ${CONFIG_FILE}"
+    echo
+
+    # Export the key for this session
+    export OPENAI_API_KEY="${api_key}"
+}
+
+# Function to load API key from config
+load_api_key() {
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        source "${CONFIG_FILE}"
+        # Export so child processes can access it
+        export OPENAI_API_KEY
+        return 0
+    fi
+    return 1
+}
+
+# Function to check if say.py exists
+check_say_script() {
+    if [[ ! -f "${SAY_SCRIPT}" ]]; then
+        print_error "say.py not found at ${SAY_SCRIPT}"
+        echo "Make sure say.py is in the same directory as osay script."
+        exit 1
+    fi
+
+    if [[ ! -x "${SAY_SCRIPT}" ]]; then
+        print_error "say.py is not executable. Run: chmod +x ${SAY_SCRIPT}"
+        exit 1
+    fi
+}
+
+# Function to display help for osay-specific features
+show_osay_help() {
+    cat << EOF
+osay - OpenAI Text-to-Speech wrapper
+
+This script sets up and manages your OpenAI API key for the say.py TTS tool.
+
+USAGE:
+    osay [OPTIONS] <text>
+    osay [OPTIONS] -f <file>
+    echo "text" | osay [OPTIONS]
+    cat file.txt | osay [OPTIONS]
+    osay --setup        # Setup or update OpenAI API key
+    osay --remove-key   # Remove stored API key
+    osay --show-key     # Show if API key is configured (without revealing it)
+
+OPTIONS:
+    All options from say.py are supported. Run 'osay -h' to see them.
+
+ENVIRONMENT:
+    OPENAI_API_KEY      Can be set manually to override config file
+
+CONFIG:
+    API key is stored in: ${CONFIG_FILE}
+
+EXAMPLES:
+    # Use OpenAI TTS (if key is configured)
+    osay "Hello, world!"
+
+    # Use specific voice
+    osay -v coral "Hello with coral voice!"
+
+    # Save to file
+    osay -o output.mp3 "Save this speech"
+
+    # Pipe text from another command
+    echo "Hello from a pipe" | osay
+
+    # Read from a file via pipe
+    cat mytext.txt | osay -v nova
+
+    # Combine with other commands
+    curl -s https://example.com/quote.txt | osay
+
+    # List available voices
+    osay -v '?'
+
+    # Setup API key
+    osay --setup
+
+If no OpenAI key is available, falls back to macOS 'say' command.
+EOF
+}
+
+# Function to show if API key is configured
+show_key_status() {
+    if [[ -n "${OPENAI_API_KEY}" ]]; then
+        print_success "OpenAI API key is set (from environment)"
+        echo "Key starts with: ${OPENAI_API_KEY:0:8}..."
+    elif load_api_key && [[ -n "${OPENAI_API_KEY}" ]]; then
+        print_success "OpenAI API key is set (from config file)"
+        echo "Key starts with: ${OPENAI_API_KEY:0:8}..."
+        echo "Config file: ${CONFIG_FILE}"
+    else
+        print_info "No OpenAI API key configured"
+        echo "Run 'osay --setup' to configure your API key"
+    fi
+}
+
+# Function to remove stored API key
+remove_api_key() {
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        rm -f "${CONFIG_FILE}"
+        print_success "API key removed from config file"
+    else
+        print_info "No API key found in config file"
+    fi
+
+    # Also clear from environment if set in this session
+    unset OPENAI_API_KEY
+}
+
+# Check if stdin is piped (not a tty)
+is_stdin_piped() {
+    ! [[ -t 0 ]]
+}
+
+# Main script logic
+main() {
+    # Check for osay-specific flags
+    case "${1:-}" in
+        --setup)
+            setup_api_key
+            exit 0
+            ;;
+        --show-key)
+            show_key_status
+            exit 0
+            ;;
+        --remove-key)
+            remove_api_key
+            exit 0
+            ;;
+        --help|-h)
+            show_osay_help
+            exit 0
+            ;;
+    esac
+
+    # Check if say.py exists
+    check_say_script
+
+    # Skip API key loading for cache operations
+    case "${1:-}" in
+        -p|--prev|--list-cached|--play-cached)
+            exec "${SAY_SCRIPT}" "$@"
+            ;;
+    esac
+
+    # Detect if stdin has piped input - be quieter in pipeline mode
+    local quiet_mode=false
+    if is_stdin_piped; then
+        quiet_mode=true
+    fi
+
+    # Try to load API key if not already set
+    if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+        if ! load_api_key; then
+            if [[ "$quiet_mode" == false ]]; then
+                print_info "No OpenAI API key found."
+                echo "Falling back to macOS 'say' command."
+                echo "Run 'osay --setup' to configure OpenAI TTS."
+                echo
+            fi
+        else
+            if [[ "$quiet_mode" == false ]]; then
+                print_success "OpenAI API key loaded from config"
+            fi
+        fi
+    else
+        if [[ "$quiet_mode" == false ]]; then
+            print_success "OpenAI API key found in environment"
+        fi
+    fi
+
+    # Execute say.py with all passed arguments
+    # stdin is automatically passed through via exec
+    exec "${SAY_SCRIPT}" "$@"
+}
+
+# Run main function
+main "$@"
