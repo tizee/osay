@@ -2,13 +2,14 @@
 #
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["openai>=1.0.0"]
+# dependencies = ["openai[voice_helpers]>=1.0.0"]
 # ///
 """
 A Python CLI tool for text-to-speech using OpenAI API with fallback to macOS 'say' command.
 """
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
@@ -19,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 
 import openai
+from openai import AsyncOpenAI
+from openai.helpers import LocalAudioPlayer
 
 
 class TTSProvider(ABC):
@@ -59,6 +62,24 @@ class OpenAITTSProvider(TTSProvider):
         if api_key:
             openai.api_key = api_key
         self.client = openai.OpenAI()
+        self.async_client = AsyncOpenAI()
+
+    async def _stream_and_play(self, text: str, voice: str, instructions: str = None) -> None:
+        """Stream audio from OpenAI API and play in real-time using LocalAudioPlayer.
+
+        Uses PCM format for lowest latency streaming playback.
+        """
+        kwargs = {
+            "model": "gpt-4o-mini-tts",
+            "voice": voice,
+            "input": text,
+            "response_format": "pcm",  # PCM required for LocalAudioPlayer streaming
+        }
+        if instructions:
+            kwargs["instructions"] = instructions
+
+        async with self.async_client.audio.speech.with_streaming_response.create(**kwargs) as response:
+            await LocalAudioPlayer().play(response)
 
     def synthesize(self, text: str, output_file: str = None, voice: str = None,
                    instructions: str = None, response_format: str = None) -> None:
@@ -76,46 +97,22 @@ class OpenAITTSProvider(TTSProvider):
             raise ValueError(f"Invalid format '{response_format}'. Available: {', '.join(self.AUDIO_FORMATS.keys())}")
 
         try:
-            # Use the newer gpt-4o-mini-tts model with enhanced capabilities
-            kwargs = {
-                "model": "gpt-4o-mini-tts",
-                "voice": voice,
-                "input": text,
-                "response_format": response_format
-            }
+            if output_file:
+                # For file output, use sync streaming API with requested format
+                kwargs = {
+                    "model": "gpt-4o-mini-tts",
+                    "voice": voice,
+                    "input": text,
+                    "response_format": response_format
+                }
+                if instructions:
+                    kwargs["instructions"] = instructions
 
-            # Add instructions if provided (for controlling tone, emotion, etc.)
-            if instructions:
-                kwargs["instructions"] = instructions
-
-            # Use the newer streaming API to avoid deprecation warning
-            with self.client.audio.speech.with_streaming_response.create(**kwargs) as response:
-                if output_file:
+                with self.client.audio.speech.with_streaming_response.create(**kwargs) as response:
                     response.stream_to_file(output_file)
-                else:
-                    # Create temporary file and play it
-                    import tempfile
-                    suffix = f".{response_format}"
-                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                        tmp_path = tmp.name
-                        response.stream_to_file(tmp_path)
-
-                    try:
-                        # Play the audio file using appropriate player
-                        if response_format in ["wav", "pcm", "mp3", "aac"]:
-                            # Use afplay for supported formats
-                            subprocess.run(["afplay", tmp_path], check=True)
-                        else:
-                            # For other formats, try ffplay if available
-                            try:
-                                subprocess.run(["ffplay", "-autoexit", "-nodisp", tmp_path],
-                                             check=True, capture_output=True)
-                            except (subprocess.CalledProcessError, FileNotFoundError):
-                                # Fallback to afplay
-                                subprocess.run(["afplay", tmp_path], check=True)
-                    finally:
-                        # Clean up temp file
-                        os.unlink(tmp_path)
+            else:
+                # For direct playback, use async streaming with LocalAudioPlayer
+                asyncio.run(self._stream_and_play(text, voice, instructions))
 
         except openai.AuthenticationError:
             raise RuntimeError("OpenAI API key is invalid or not set. Set OPENAI_API_KEY environment variable.")

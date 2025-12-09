@@ -8,6 +8,7 @@ A powerful command-line text-to-speech tool that combines OpenAI's advanced TTS 
 - **10 AI Voices**: alloy, ash, ballad, coral, echo, fable, nova, onyx (default), sage, shimmer
 - **Speech Instructions**: Control tone, emotion, speed, and speaking style
 - **Multiple Formats**: MP3, WAV, Opus, AAC, FLAC, PCM
+- **Live Streaming**: Real-time audio playback with `--no-cache` for lowest latency
 - **Audio Caching**: Automatically caches generated audio for replay
 - **macOS Fallback**: Automatically falls back to system `say` command if no API key
 - **Voice Preview**: List voices with sample text and language information
@@ -118,12 +119,28 @@ Audio is cached by default for easy replay. Cache is stored in `~/.osay/audios/`
 # Play cached audio by ID
 ./osay --play-cached abc123
 
-# Select cached audio with fzf (interactive)
+# Select cached audio with fzf (interactive, requires fzf)
 ./osay --play-cached
-
-# Disable caching for a single command
-./osay --no-cache "This won't be cached"
 ```
+
+> **Note**: Interactive selection requires [fzf](https://github.com/junegunn/fzf). Install with `brew install fzf`.
+
+## Live Streaming
+
+Use `--no-cache` for real-time audio streaming with the lowest possible latency. Audio plays as it's generated, without saving to disk.
+
+```bash
+# Stream audio in real-time (no caching)
+./osay --no-cache "This plays immediately as it streams!"
+
+# Great for interactive applications
+./osay --no-cache --instructions "Speak quickly" "Fast response needed"
+
+# Combine with different voices
+./osay --no-cache -v coral "Real-time coral voice"
+```
+
+**How it works**: When `--no-cache` is used, audio streams directly from OpenAI's API using PCM format and plays through the built-in audio player. This eliminates file I/O overhead and provides the fastest time-to-first-audio.
 
 ## Advanced Features
 
@@ -167,6 +184,7 @@ These only work when OpenAI API key is configured:
 - `--instructions` - Control speech style and emotion
 - `--format` - Choose from 6 audio formats
 - `--no-instructions` - Disable default cheerful tone
+- `--no-cache` - Enable live streaming for lowest latency playback
 
 ### macOS Fallback Features
 
@@ -231,7 +249,7 @@ alias say='~/path/to/osay'
 # Cache management
 ./osay --list-cached    # List cached audio files
 ./osay -p               # Play most recent cached audio
-./osay --play-cached    # Select and play with fzf
+./osay --play-cached    # Select and play with fzf (requires fzf)
 ```
 
 ## Configuration
@@ -251,8 +269,9 @@ alias say='~/path/to/osay'
 - On Linux/Windows, OpenAI API key is required
 
 ### Audio Playback Issues
-- Ensure `afplay` is available (should be on all macOS)
-- For non-standard formats, `ffplay` from FFmpeg may be needed
+- **Live streaming** (`--no-cache`): Uses OpenAI's built-in audio player (cross-platform)
+- **Cached playback**: Uses `afplay` on macOS (should be available on all macOS systems)
+- For non-standard formats with caching, `ffplay` from FFmpeg may be needed
 
 ## API Documentation
 
