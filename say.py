@@ -302,11 +302,24 @@ class TTSService:
                    instructions: str = None, response_format: str = None,
                    cache: bool = False) -> None:
         """Synthesize text using the selected provider."""
+        import time
+
         # Use provider's default voice if not specified
         if not voice and hasattr(self.provider, 'DEFAULT_VOICE'):
             voice = self.provider.DEFAULT_VOICE
 
         fmt = response_format or 'mp3'
+
+        # Display playback mode
+        if isinstance(self.provider, OpenAITTSProvider):
+            if output_file:
+                print(f"Mode: File output ({fmt} format)", file=sys.stderr)
+            elif cache:
+                print(f"Mode: Cached playback ({fmt} format)", file=sys.stderr)
+            else:
+                print("Mode: Live streaming (PCM format - lowest latency)", file=sys.stderr)
+
+        start_time = time.time()
 
         if output_file:
             # Just synthesize to file, no playback
@@ -330,6 +343,14 @@ class TTSService:
         else:
             # No caching - provider handles temp file and playback
             self.provider.synthesize(text, None, voice, instructions, response_format)
+
+        # Show timing information
+        elapsed_time = time.time() - start_time
+        if isinstance(self.provider, OpenAITTSProvider):
+            if cache or output_file:
+                print(f"Completed in {elapsed_time:.2f}s", file=sys.stderr)
+            else:
+                print(f"Streamed in {elapsed_time:.2f}s (live playback)", file=sys.stderr)
 
     def list_voices(self) -> list[str]:
         """List available voices for the selected provider."""
@@ -490,7 +511,7 @@ def main():
     parser.add_argument(
         "--no-cache",
         action="store_true",
-        help="Disable caching of audio file"
+        help="Disable caching of audio file (enables live streaming for lowest latency)"
     )
 
     parser.add_argument(

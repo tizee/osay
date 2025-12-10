@@ -114,39 +114,81 @@ USAGE:
     osay --remove-key   # Remove stored API key
     osay --show-key     # Show if API key is configured (without revealing it)
 
-OPTIONS:
-    All options from say.py are supported. Run 'osay -h' to see them.
+OSAY-SPECIFIC OPTIONS:
+    --setup             Setup or update OpenAI API key interactively
+    --show-key          Show if API key is configured (without revealing it)
+    --remove-key        Remove stored API key from config file
+    -h, --help          Show this help message
+
+TTS OPTIONS:
+    <text>              Text to speak (positional argument)
+    -f, --file FILE     Read text from file instead of argument
+    -o, --output-file FILE
+                        Save audio to file instead of speaking
+    -v, --voice VOICE   Voice to use (use -v '?' to list available voices)
+                        OpenAI voices: alloy, ash, ballad, coral, echo,
+                                       fable, nova, onyx, sage, shimmer
+    --instructions TEXT Instructions for speech style (OpenAI only)
+                        Controls tone, emotion, speed, etc.
+                        Default: "Speak in a cheerful and positive tone."
+    --no-instructions   Disable default instructions for neutral speech
+    --format FORMAT     Audio output format (OpenAI only)
+                        Choices: mp3 (default), opus, aac, flac, wav, pcm
+    --no-cache          Disable caching, enables live streaming playback
+                        (lowest latency for direct playback)
+
+CACHE OPTIONS:
+    --list-cached       List all cached audio files with metadata
+    --play-cached [ID]  Play cached audio by ID (use without ID to select
+                        interactively with fzf)
+    -p, --prev          Play the most recently cached audio
 
 ENVIRONMENT:
     OPENAI_API_KEY      Can be set manually to override config file
 
 CONFIG:
     API key is stored in: ${CONFIG_FILE}
+    Audio cache stored in: ~/.osay/audios/
 
 EXAMPLES:
-    # Use OpenAI TTS (if key is configured)
+    # Basic usage with OpenAI TTS
     osay "Hello, world!"
 
     # Use specific voice
     osay -v coral "Hello with coral voice!"
 
-    # Save to file
+    # Custom speech style
+    osay --instructions "Speak slowly and dramatically" "To be or not to be"
+
+    # Save to file in different formats
     osay -o output.mp3 "Save this speech"
+    osay -o speech.wav --format wav "High quality audio"
 
     # Pipe text from another command
     echo "Hello from a pipe" | osay
 
+    # Read from a file
+    osay -f mytext.txt -v nova
+
     # Read from a file via pipe
     cat mytext.txt | osay -v nova
-
-    # Combine with other commands
-    curl -s https://example.com/quote.txt | osay
 
     # List available voices
     osay -v '?'
 
-    # Setup API key
-    osay --setup
+    # Live streaming (lowest latency, no cache)
+    osay --no-cache "Quick response!"
+
+    # Cache operations
+    osay --list-cached              # List cached audio
+    osay -p                         # Play most recent
+    osay --play-cached              # Select with fzf
+    osay --play-cached abc123       # Play specific ID
+
+    # API key management
+    osay --setup                    # Setup API key
+    osay --show-key                 # Check key status
+    osay --remove-key               # Remove stored key
 
 If no OpenAI key is available, falls back to macOS 'say' command.
 EOF
