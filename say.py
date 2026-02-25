@@ -167,36 +167,115 @@ class MacOSsayProvider(TTSProvider):
             return []
 
 
+class Config:
+    """Manages configuration from ~/.config/osay/config.json."""
+
+    CONFIG_DIR = Path.home() / ".config" / "osay"
+    CONFIG_FILE = CONFIG_DIR / "config.json"
+
+    DEFAULT_CONFIG = {
+        "audio_cache": True,
+        "cleanup_enabled": True,
+        "cache_expire_days": 30,
+    }
+
+    def __init__(self):
+        """Load configuration from file."""
+        self._config = self._load_config()
+
+    def _load_config(self) -> dict:
+        """Load configuration from JSON file."""
+        if not self.CONFIG_FILE.exists():
+            return self.DEFAULT_CONFIG.copy()
+
+        try:
+            with open(self.CONFIG_FILE, 'r') as f:
+                user_config = json.load(f)
+            # Merge with defaults
+            config = self.DEFAULT_CONFIG.copy()
+            config.update(user_config)
+            return config
+        except (json.JSONDecodeError, IOError):
+            return self.DEFAULT_CONFIG.copy()
+
+    @property
+    def audio_cache_enabled(self) -> bool:
+        """Check if audio cache is enabled."""
+        return self._config.get("audio_cache", True)
+
+    @property
+    def cleanup_enabled(self) -> bool:
+        """Check if automatic cleanup is enabled."""
+        return self._config.get("cleanup_enabled", True)
+
+    @property
+    def cache_expire_days(self) -> int:
+        """Get cache expiration in days."""
+        return self._config.get("cache_expire_days", 30)
+
+
 class AudioCache:
     """Manages caching of audio files with metadata."""
 
     CACHE_DIR = Path.home() / ".osay" / "audios"
-    MAX_CACHE_SIZE = 10
 
-    def __init__(self):
+    def __init__(self, cleanup_enabled: bool = None, cache_expire_days: int = None):
         """Initialize cache directory."""
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        self._cleanup_old_files()
+        self._cleanup_enabled = cleanup_enabled
+        self._cache_expire_days = cache_expire_days
 
-    def _cleanup_old_files(self):
-        """Remove oldest files if cache exceeds MAX_CACHE_SIZE."""
-        audio_files = sorted(
-            self.CACHE_DIR.glob("*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
+    @property
+    def cleanup_enabled(self) -> bool:
+        """Check if automatic cleanup is enabled."""
+        if self._cleanup_enabled is not None:
+            return self._cleanup_enabled
+        config = Config()
+        return config.cleanup_enabled
 
-        if len(audio_files) > self.MAX_CACHE_SIZE:
-            # Remove oldest files
-            for old_file in audio_files[self.MAX_CACHE_SIZE:]:
-                metadata = self._load_metadata(old_file)
-                if metadata:
-                    # Remove audio file if it exists
-                    audio_path = self.CACHE_DIR / metadata["audio_file"]
+    @property
+    def cache_expire_days(self) -> int:
+        """Get cache expiration in days."""
+        if self._cache_expire_days is not None:
+            return self._cache_expire_days
+        config = Config()
+        return config.cache_expire_days
+
+    def cleanup(self) -> int:
+        """Manually cleanup expired cache files. Returns number of files removed."""
+        expire_days = self.cache_expire_days
+        audio_files = list(self.CACHE_DIR.glob("*.json"))
+
+        removed_count = 0
+        for metadata_file in audio_files:
+            metadata = self._load_metadata(metadata_file)
+            if metadata:
+                # Check if file has expired based on timestamp
+                try:
+                    timestamp = datetime.fromisoformat(metadata["timestamp"])
+                    age_days = (datetime.now() - timestamp).days
+                    if age_days > expire_days:
+                        # Remove audio file if it exists
+                        audio_path = self.CACHE_DIR / metadata["audio_file"]
+                        if audio_path.exists():
+                            audio_path.unlink()
+                        # Remove metadata file
+                        metadata_file.unlink()
+                        removed_count += 1
+                except (KeyError, ValueError):
+                    # If timestamp is missing or invalid, remove the file
+                    audio_path = self.CACHE_DIR / metadata.get("audio_file", "")
                     if audio_path.exists():
                         audio_path.unlink()
-                # Remove metadata file
-                old_file.unlink()
+                    metadata_file.unlink()
+                    removed_count += 1
+        return removed_count
+
+    def _cleanup_old_files(self):
+        """Remove expired cache files (called automatically after caching)."""
+        if not self.cleanup_enabled:
+            return
+        self.cleanup()
 
     def _load_metadata(self, metadata_file: Path) -> dict:
         """Load metadata from JSON file."""
@@ -278,7 +357,10 @@ class TTSService:
     def __init__(self):
         """Initialize TTS service with automatic provider selection."""
         self.provider = self._select_provider()
-        self.cache = AudioCache()
+        config = Config()
+        cleanup_enabled = config.cleanup_enabled if config.audio_cache_enabled else False
+        self.cache = AudioCache(cleanup_enabled=cleanup_enabled if cleanup_enabled else None,
+                               cache_expire_days=config.cache_expire_days if config.audio_cache_enabled else None)
 
     def _select_provider(self) -> TTSProvider:
         """Select the appropriate TTS provider based on availability."""
@@ -339,6 +421,8 @@ class TTSService:
                 provider=self.provider.__class__.__name__,
                 instructions=instructions
             )
+            # Auto cleanup expired files if enabled
+            self.cache._cleanup_old_files()
             print(f"Cached audio ID: {cache_id}", file=sys.stderr)
         else:
             # No caching - provider handles temp file and playback
@@ -534,6 +618,12 @@ def main():
         help="Play the most recent cached audio"
     )
 
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Clean up expired cached audio files (based on cache_expire_days)"
+    )
+
     args = parser.parse_args()
 
     # Handle cached audio operations first (no API key needed)
@@ -569,6 +659,12 @@ def main():
     if args.play_cached is not None:
         cache = AudioCache()
         play_cached_audio(cache, args.play_cached if args.play_cached else None)
+        return
+
+    if args.cleanup:
+        cache = AudioCache()
+        removed = cache.cleanup()
+        print(f"Cleaned up {removed} cached audio file(s).", file=sys.stderr)
         return
 
     # Initialize TTS service (loads API key)
@@ -613,9 +709,13 @@ def main():
         print("Error: No text to speak", file=sys.stderr)
         sys.exit(1)
 
+    # Determine cache setting: CLI flag overrides config
+    config = Config()
+    use_cache = not args.no_cache and config.audio_cache_enabled
+
     # Synthesize speech
     try:
-        tts.synthesize(text, args.output_file, args.voice, instructions, args.format, not args.no_cache)
+        tts.synthesize(text, args.output_file, args.voice, instructions, args.format, use_cache)
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
