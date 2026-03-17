@@ -1,0 +1,92 @@
+[project]
+name = "osay"
+version = "0.2.0"
+description = "CLI text-to-speech tool using OpenAI API with macOS 'say' fallback"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = [
+    "openai[voice_helpers]>=1.0.0",
+]
+
+[project.scripts]
+osay = "osay.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osay"]
+
+[dependency-groups]
+dev = [
+    "hatchling>=1.28.0",
+    "pyright>=1.1.408",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.4",
+]
+
+[tool.ruff]
+# py313 instead of py314: ruff 0.15.x has a formatter bug that strips
+# parentheses from `except (A, B):` when target is py314.
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+    ".venv",
+    "dist",
+    "build",
+    "__pypackages__",
+]
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "I",
+    "D",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
+    "PIE",
+    "PERF",
+    "PGH",
+    "T10",
+    "T20",
+]
+ignore = [
+    "E501",
+    "D105",
+    "D107",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+length-sort = true
+length-sort-straight = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "B"]
+"src/osay/cli.py" = ["T20"]
+"src/osay/key.py" = ["T20"]
+"src/osay/__main__.py" = ["T20"]
+
+[tool.ruff.format]
+quote-style = "single"
+docstring-code-format = true
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", ".venv", "build", "dist"]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+reportImportCycles = false
+reportPrivateUsage = false

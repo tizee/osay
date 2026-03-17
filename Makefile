@@ -1,57 +1,32 @@
-# Makefile for osay - OpenAI TTS wrapper
+.PHONY: install sync test dev clean help fmt lint typecheck install-tool
 
-PREFIX ?= $(HOME)/.local
-BINDIR ?= $(PREFIX)/bin
-SRCDIR := $(shell pwd)
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: all install uninstall check help
+install: sync ## Full setup: sync deps
+	@echo "Done. Run 'make test' to verify."
 
-all: help
+sync: ## Sync Python dependencies
+	uv sync
 
-help:
-	@echo "osay - OpenAI TTS wrapper installation"
-	@echo ""
-	@echo "Usage:"
-	@echo "  make install      Symlink osay to $(BINDIR)"
-	@echo "  make uninstall    Remove symlink from $(BINDIR)"
-	@echo "  make check        Verify installation"
-	@echo ""
-	@echo "Variables:"
-	@echo "  PREFIX            Installation prefix (default: $(HOME)/.local)"
-	@echo "  BINDIR            Binary directory (default: $(PREFIX)/bin)"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make install                          # Link to ~/.local/bin"
-	@echo "  make install PREFIX=/usr/local        # Link to /usr/local/bin (needs sudo)"
+test: ## Run tests
+	uv run pytest tests/ -v
 
-install: osay
-	@echo "Linking osay to $(BINDIR)..."
-	@mkdir -p $(BINDIR)
-	@ln -sf $(SRCDIR)/osay $(BINDIR)/osay
-	@echo "Done. Make sure $(BINDIR) is in your PATH."
-	@echo ""
-	@echo "Add to your shell config if needed:"
-	@echo '  export PATH="$(BINDIR):$$PATH"'
+fmt: ## Format code with ruff
+	uv run ruff format src/ tests/
 
-uninstall:
-	@echo "Removing symlink from $(BINDIR)..."
-	@rm -f $(BINDIR)/osay
-	@echo "Done."
-	@echo ""
-	@echo "Note: Config file at ~/.config/osay/config was not removed."
-	@echo "Run 'rm -rf ~/.config/osay' to remove it manually."
+lint: ## Lint code with ruff
+	uv run ruff check src/ tests/
 
-check:
-	@echo "Checking installation..."
-	@if [ -L "$(BINDIR)/osay" ]; then \
-		echo "✓ Symlink exists at $(BINDIR)/osay"; \
-		echo "  -> $$(readlink $(BINDIR)/osay)"; \
-		if command -v osay >/dev/null 2>&1; then \
-			echo "✓ osay is in PATH"; \
-		else \
-			echo "✗ osay not in PATH - add $(BINDIR) to PATH"; \
-		fi; \
-	else \
-		echo "✗ Symlink not found at $(BINDIR)/osay"; \
-		exit 1; \
-	fi
+typecheck: ## Type check with pyright
+	uv run pyright
+
+install-tool: install ## Install as global uv tool
+	uv tool install . --reinstall
+
+dev: install test ## Setup dev environment and run tests
+
+clean: ## Remove build artifacts and caches
+	rm -rf dist/ build/ *.egg-info .pytest_cache .ruff_cache
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
