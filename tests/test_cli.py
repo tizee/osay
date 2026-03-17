@@ -15,8 +15,15 @@ class TestBuildParser:
         parser = _build_parser()
         # Smoke test: parse known args
         args = parser.parse_args(['hello world'])
-        assert args.text == 'hello world'
+        assert args.text == ['hello world']
         assert args.json_output is False
+
+    def test_parser_text_after_flags(self):
+        parser = _build_parser()
+        args = parser.parse_args(['--instructions', 'Speak sadly', '-v', 'alloy', 'Hello there'])
+        assert args.text == ['Hello there']
+        assert args.instructions == 'Speak sadly'
+        assert args.voice == 'alloy'
 
     def test_parser_json_flag(self):
         parser = _build_parser()
@@ -68,7 +75,10 @@ class TestMainKeyManagement:
         with (
             patch('osay.key.CONFIG_DIR', fake_dir),
             patch('osay.key.KEY_FILE', fake_key_file),
-            patch('osay.cli.save_api_key', wraps=__import__('osay.key', fromlist=['save_api_key']).save_api_key),
+            patch(
+                'osay.cli.save_api_key',
+                wraps=__import__('osay.key', fromlist=['save_api_key']).save_api_key,
+            ),
             patch('sys.argv', ['osay', '--setup', 'sk-test-abc', '--json']),
         ):
             main()

@@ -34,8 +34,8 @@ class TestOpenAITTSProvider:
         assert 'coral' in voices
         assert len(voices) == 10
 
-    def test_default_voice_is_onyx(self):
-        assert OpenAITTSProvider.DEFAULT_VOICE == 'onyx'
+    def test_default_voice_is_alloy(self):
+        assert OpenAITTSProvider.DEFAULT_VOICE == 'alloy'
 
 
 class TestMacOSsayProvider:

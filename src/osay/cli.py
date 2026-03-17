@@ -125,7 +125,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description='Text-to-speech using OpenAI API or macOS say',
     )
 
-    parser.add_argument('text', nargs='?', help='Text to speak')
+    parser.add_argument('text', nargs='*', help='Text to speak')
     parser.add_argument('-f', '--file', metavar='FILE', help='Read text from file')
     parser.add_argument(
         '-o', '--output-file', metavar='FILE', help='Save audio to file instead of speaking'
@@ -322,7 +322,7 @@ def main() -> None:
     # Get text
     text: str | None = None
     if args.text:
-        text = args.text
+        text = ' '.join(args.text)
     elif args.file:
         try:
             text = Path(args.file).read_text(encoding='utf-8').strip()
@@ -356,6 +356,9 @@ def main() -> None:
     use_cache = not args.no_cache and config.audio_cache_enabled
 
     fmt = args.format or 'mp3'
+    # macOS say only produces AIFF natively; override format for cache compatibility
+    if isinstance(provider, MacOSsayProvider) and not args.output_file:
+        fmt = 'aiff'
     voice = args.voice or getattr(provider, 'DEFAULT_VOICE', 'default')
 
     # Initialize cache once if enabled

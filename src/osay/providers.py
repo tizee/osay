@@ -43,7 +43,7 @@ class OpenAITTSProvider(TTSProvider):
         'sage',
         'shimmer',
     ]
-    DEFAULT_VOICE = 'onyx'
+    DEFAULT_VOICE = 'alloy'
 
     AUDIO_FORMATS = {'mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'}
     DEFAULT_FORMAT = 'mp3'
